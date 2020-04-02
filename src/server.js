@@ -24,31 +24,26 @@
 'use strict'
 
 const Hapi = require('@hapi/hapi')
+const Inert = require('@hapi/inert')
+const Vision = require('@hapi/vision')
 const Boom = require('@hapi/boom')
-const HapiOpenAPI = require('hapi-openapi')
-const Path = require('path')
+const Blipp = require('blipp')
+const ErrorHandler = require('@mojaloop/central-services-error-handling')
+const Logger = require('@mojaloop/central-services-logger')
+const ParticipantEndpointCache = require('@mojaloop/central-services-shared').Util.Endpoints
+const CentralServices = require('@mojaloop/central-services-shared')
+
+const Package = require('../package')
 const Db = require('./lib/db')
 const Config = require('./lib/config.js')
 const Plugins = require('./plugins')
 const RequestLogger = require('./lib/requestLogger')
-const ParticipantEndpointCache = require('@mojaloop/central-services-shared').Util.Endpoints
-const HeaderValidator = require('@mojaloop/central-services-shared').Util.Hapi.FSPIOPHeaderValidation
 const Migrator = require('./lib/migrator')
-const ErrorHandler = require('@mojaloop/central-services-error-handling')
-const Logger = require('@mojaloop/central-services-logger')
+const ApiRoutes = require('./routes/api')
+const AdminRoutes = require('./routes/admin')
 
 const connectDatabase = async () => {
   return Db.connect(Config.DATABASE)
-}
-
-const openAPIOptions = {
-  api: Path.resolve(__dirname, './interface/api_swagger.json'),
-  handlers: Path.resolve(__dirname, './handlers')
-}
-
-const openAdminAPIOptions = {
-  api: Path.resolve(__dirname, './interface/admin_swagger.json'),
-  handlers: Path.resolve(__dirname, './handlers')
 }
 
 const migrate = async (isApi) => {
@@ -83,13 +78,25 @@ const createServer = async (port, isApi) => {
   await Plugins.registerPlugins(server)
   await server.register([
     {
-      plugin: HapiOpenAPI,
-      options: isApi ? openAPIOptions : openAdminAPIOptions
+      plugin: require('hapi-swagger'),
+      options: {
+        info: {
+          title: `Account Lookup Service ${ isApi ? 'API':'Admin' } Documentation`,
+          version: Package.version
+        }
+      }
     },
     {
-      plugin: HeaderValidator
-    }
+      plugin: CentralServices.Util.Hapi.FSPIOPHeaderValidation
+    },
+    Inert,
+    Vision,
+    Blipp,
+    ErrorHandler,
+    CentralServices.Util.Hapi.HapiEventPlugin
   ])
+
+  await server.register([isApi ? ApiRoutes : AdminRoutes])
   await server.ext([
     {
       type: 'onRequest',
@@ -114,7 +121,6 @@ const initialize = async (port = Config.API_PORT, isApi = true) => {
   await connectDatabase()
   await migrate(isApi)
   const server = await createServer(port, isApi)
-  server.plugins.openapi.setHost(server.info.host + ':' + server.info.port)
   Logger.info(`Server running on ${server.info.host}:${server.info.port}`)
   if (isApi) {
     await ParticipantEndpointCache.initializeCache(Config.ENDPOINT_CACHE_CONFIG)
