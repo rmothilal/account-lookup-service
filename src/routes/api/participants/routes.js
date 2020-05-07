@@ -50,7 +50,7 @@ module.exports = [
           traceparent: Joi.string().optional(),
           tracestate: Joi.string().optional()
         }).unknown(false).options({ stripUnknown: true }),
-        payload: Validator.QuoteValidator.postQuoteSchema
+        payload: Validator.ParticipantValidator.postBulkParticipantSchema
       }
     }
   }
